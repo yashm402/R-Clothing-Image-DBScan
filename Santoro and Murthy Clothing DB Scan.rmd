@@ -1,0 +1,231 @@
+---
+title: "DB Scan Cludstering"
+author: "Michael Santoro"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Introduction
+In this exploration of DBScan (Density Based Scan) clustering we will be exploring the if the images of clothes can be clustered together by the item
+type of clothing. We are using the clothing dataset from kaggle found here: https://www.kaggle.com/agrigorev/clothing-dataset-full?select=images.csv
+
+```{r}
+
+library(dplyr)
+
+library(OpenImageR)
+library(SuperpixelImageSegmentation)
+library(glue)
+library(ggplot2)
+# For Data Manipulation
+library(tidyverse) 
+
+# For Clustering algorithm
+library(cluster)
+
+#install.packages("fpc")
+library(fpc)
+
+#install.packages("dbscan")
+library(dbscan)
+
+# for cluster visualisation
+#install.packages("factoextra")
+library(factoextra)
+```
+
+The files from Kaggle include the labels of the data included in a file names images.csv. Below we read in this data-set.
+
+```{r}
+images <- read.csv("images.csv", header=TRUE, sep=",") 
+```
+
+The block below checks the types of the variables included in the dataset.
+
+```{r}
+str(images)
+```
+
+```{r}
+ggplot(images, aes(x = label, color=label)) +        # Create   barchart with ggplot2
+  geom_bar() +
+  ggtitle("Bar Plot of Label Counts") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))  ###YM
+```
+
+```{r}
+table(images$label)
+```
+
+```{r}
+dropRows<-images %>% count(label)
+
+dropRows<- dropRows[which(dropRows$n<300),]
+
+```
+
+We will drop the categories with labels less than 300.
+
+```{r}
+images <- subset(images, !(label %in% dropRows$label))
+
+```
+
+```{r}
+table(images$label)
+
+```
+
+## Image Exploration
+
+The following function will take in a string and return an array of the image, with the following.
+We are using superpixel segementation to allow for the variance of of the distance to be less across images. As quoted from the article in the link below: "In this respect, superpixels address two problems inherent to the processing of digital images: firstly, pixels are merely a result of discretization; and secondly, the high number of pixels in large images prevents many algorithms from being computationally feasible."
+This is a form of trying soften the edges: https://cran.r-project.org/web/packages/OpenImageR/vignettes/Image_segmentation_superpixels_clustering.html.
+For the other image functions: https://cran.r-project.org/web/packages/OpenImageR/vignettes/The_OpenImageR_package.html
+
+```{r}
+imageTransform <- function(name) {
+  #The name is passed in as string and needs to be concatenated into the file path
+  file <- glue("images_compressed/{name}.jpg")
+  print(file)
+  
+  #Read in the file
+  img <- readImage(file)
+  
+  #Crop image
+  img <- cropImage(img, new_width = 400, new_height = 400, type = 'equal_spaced')
+  
+  
+  
+  #Super Pixel Transform
+  init = Image_Segmentation$new()
+  spx = suppressWarnings(init$spixel_segmentation(input_image = img, 
+                               superpixel = 600, 
+                               AP_data = TRUE,
+                               use_median = TRUE, 
+                               sim_wL = 3, 
+                               sim_wA = 10, 
+                               sim_wB = 10,
+                               sim_color_radius = 10, 
+                               #verbose = TRUE
+                               verbose = FALSE
+                               ))
+  
+  #Convert image to grayscale
+  gry <- rgb_2gray(spx$AP_image_data)
+  
+  #Resize Image (50,50 looks better but running out of memory when running DBScan)
+  gry = resizeImage(gry, width = 100, height = 100, method = 'bilinear', normalize_pixels = TRUE)
+
+  
+  #Show the image
+  imageShow(gry)
+  return(gry)
+}
+```
+
+```{r}
+gry1 <- imageTransform("00bede7c-eae4-4ee9-a1ac-1721b3f94c54")
+gry2 <- imageTransform("00d9cc6e-2564-4813-9d68-4bc4d562107b")
+```
+
+We can get a distance from one image to another.*add something to explain distance*
+
+```{r}
+res <- median(abs(gry1-gry2))
+
+```
+
+
+##Data Preparation for Input
+We will need to create a matrix.
+
+```{r}
+#Currently only first 25 images
+transformed_images <- sapply(images$image[1:200],imageTransform)
+#transformed_images <- sapply(images$image,imageTrasform)
+
+#Load in the saved .rdata file
+load("transformed_images.RData")
+
+```
+
+
+```{r}
+table(images$label)
+
+table(images$label[1:200])
+```
+
+##DBScan Clustering
+Since we know from the data that none of our categories have less than 200 in a group we will pass this in as the minPts value.
+The eps value we will set to larger than what we had for the average distance between the two sample images.
+
+```{r} 
+
+transposed_tranformed_images <- t(transformed_images) #transposed dataframe to swap rows and columns 
+
+#Obtaining Optimal Value of Eps to calculate radius of clusters
+eps_plot <- kNNdistplot(transposed_tranformed_images, k=4) 
+
+#if data is ideal, we want clusters to have about what actual values in dataset
+
+eps_plot %>% abline(h = 27, lty = 2)
+
+```
+
+```{r}
+res <- dbscan(transposed_tranformed_images, eps =27, minPts = 2)
+res
+```
+
+```{r} 
+#Visualizing clusters obtained from DBScan
+
+sub.group <- images[]
+sub.group["clusters"] <- res$cluster
+
+#transposed_tranformed_images <- t(transformed_images) #transposed dataframe to swap rows and columns 
+
+clusters <- fviz_cluster(res, data = transposed_tranformed_images, stand = FALSE,
+             ellipse = FALSE, show.clust.cent = FALSE,
+             geom = "point",palette = "jco", ggtheme = theme_classic())
+
+clusters
+
+fviz_cluster(res, data=transposed_tranformed_images, geom = "point" ) #cluster visualization
+```
+
+
+
+```{r}
+# ggplot(sub.group, aes(x = sub.group$clusters, y = sub.group$label, color=sub.group$label)) +        # Create   barchart with ggplot2
+#   geom_point() +
+#   ggtitle("Plot of Results")
+```
+```{r}
+ggplot(sub.group[which(sub.group$clusters==1),], aes(x = label, color=label)) +        # Create barchart of counts with ggplot2
+  geom_bar() +
+  ggtitle("Bar Plot of Label Counts From Cluster 1") + 
+  geom_text(stat='count', aes(label=..count..), vjust=-1) + 
+  ylim(c(0,1100))  #ylim based on max value from images table (1:x)
+
+
+
+noise <- filter(sub.group, clusters != 1) #need to match row to index value 
+noise
+
+
+imageShow(img)
+
+
+row <- transposed_tranformed_images["c6d71611-6bae-4645-8a93-959973e05f8b",]
+img <- array(row,c(100,100))
+imageShow(img)
+```
+
+```{r}
+
+```
+
