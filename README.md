@@ -1,6 +1,7 @@
 # R-Clothing-Image-DBScan
 Can we generate discernable groups of clothing images using the Density Based Scan algorithm? Under ideal conditions our primary method could be used as a label or categorization method for images. So, if the preparation of image files and DBScan method were acting accurately on the labeled on un-labeled image data and images could be classified. This would require perfectly masked scaled images, centered with very little noise.
 
+***Image Dataset found here: https://www.kaggle.com/agrigorev/clothing-dataset-full?select=images.csv***
 
 Q1.1: Where did you obtain your data set? Who collected it originally? If you know, what was the motivation for collecting the data? How many variables and observations are in the data set? Which variables are most important to explain to the audience?
 
